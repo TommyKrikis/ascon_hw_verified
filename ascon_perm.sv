@@ -2,7 +2,6 @@ module ascon_perm(
     // control
     input  logic        start,          // pulse: begin a permutation
     input  logic [3:0]  num_rounds,     // how many rounds to run (6, 8, or 12)
-    input  logic [3:0]  round_idx_start,// offset into the 12-entry RC table (0 or a-b)
 
     input logic         clk,            // clock
     input logic         rst_n,          // async reset, active low
@@ -21,8 +20,8 @@ module ascon_perm(
     typedef enum logic [2:0] {IDLE, RUN, DONE_ST} state_e;
     state_e fsm;
 
-    assign rc_idx = round_idx_start + round_cnt;
-    
+    assign rc_idx = (4'd12 - num_rounds) + round_cnt;
+
     p_round p_round_inst (
         .state_in(state_reg),
         .round_curr(rc_idx),

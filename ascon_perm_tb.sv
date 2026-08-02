@@ -12,8 +12,6 @@ module ascon_perm_tb;
     logic         rst_n;
     logic         start;
     logic [3:0]   num_rounds;
-    logic [3:0]   round_idx_start;
-    logic         a_b;             // DUT has this port; tie to 0 (unused)
     logic         busy;
     logic         done;
     logic [319:0] state_in;
@@ -31,7 +29,6 @@ module ascon_perm_tb;
         .rst_n           (rst_n),
         .start           (start),
         .num_rounds      (num_rounds),
-        .round_idx_start (round_idx_start),
         .busy            (busy),
         .done            (done),
         .state_in        (state_in),
@@ -59,7 +56,6 @@ module ascon_perm_tb;
     //    'automatic' = each call gets its own copies of the arguments.
     // -----------------------------------------------------------------
     task automatic run_perm(input logic [3:0]   nr,        // num_rounds
-                            input logic [3:0]   ris,       // round_idx_start
                             input logic [319:0] din,       // state_in
                             input logic [319:0] expected,  // golden output
                             input string        name);
@@ -68,7 +64,6 @@ module ascon_perm_tb;
             // the rising edge the DUT samples them on.
             @(negedge clk);
             num_rounds      = nr;
-            round_idx_start = ris;
             state_in        = din;
             start           = 1'b1;     // request a run
 
@@ -99,9 +94,7 @@ module ascon_perm_tb;
     initial begin
         // ---- safe initial values + reset ----
         start           = 1'b0;
-        a_b             = 1'b0;
         num_rounds      = 4'd0;
-        round_idx_start = 4'd0;
         state_in        = '0;
         rst_n           = 1'b0;              // assert active-low reset
         repeat (3) @(negedge clk);
@@ -110,15 +103,15 @@ module ascon_perm_tb;
 
         // ---- directed golden vectors (input = all zeros) ----
         // Golden outputs come from the Python reference ascon_permutation().
-        run_perm(4'd12, 4'd0, 320'h0,
+        run_perm(4'd12, 320'h0,
             320'h045d648e4def12c93fe53f36f2c1178c6937f83e03d11a509b9bfb8513b560f778ea7ae5cfebb108,
             "p12_zero");
 
-        run_perm(4'd8,  4'd4, 320'h0,
+        run_perm(4'd8,  320'h0,
             320'h0168260badf76a06f01fdabf8c8a82b4a01ef761bf8e1652a5425f1f8cb313881418f8af721aa830,
             "p8_zero");
 
-        run_perm(4'd6,  4'd6, 320'h0,
+        run_perm(4'd6,  320'h0,
             320'h649af379ba83cd302b23481598ffa8eae0377d04e23a914b21495b1b0ae33eef160c84f20faad4f1,
             "p6_zero");
 
