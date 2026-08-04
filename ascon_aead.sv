@@ -9,8 +9,11 @@ module ascon_aead(
 
     input  logic [127:0] key,            
     input  logic [127:0] nonce,          
-    output logic [127:0] ct_block,       
+    output logic [127:0] ct_block,
+    output logic ct_valid,       
     input  logic [127:0] pt_block,
+    input logic [7:0] pt_blocks,
+    output logic [7:0] pt_idx,          // "I want block number pt_idx"
     input logic [127:0] ad_block,
     input  logic [7:0]   ad_blocks,   // how many AD blocks total (0 = empty)
     output logic [7:0]   ad_idx,      // "I want block number ad_idx"
@@ -28,10 +31,11 @@ module ascon_aead(
 
   logic [3:0] perm_rounds = 4'b0000;
 
-  typedef enum logic [3:0] {IDLE,INIT_START,INIT_WAIT,PROCESS_AD_INIT, PROCESS_AD_WAIT,AD_DS, PROCESS_PT_INIT,FINALIZE,FIN_START,FIN_WAIT,DONE} state_e;
+  typedef enum logic [3:0] {IDLE,INIT_START,INIT_WAIT,PROCESS_AD_INIT, PROCESS_AD_WAIT,AD_DS, PROCESS_PT_INIT,PROCESS_PT_WAIT,FINALIZE,FIN_START,FIN_WAIT,DONE} state_e;
   state_e fsm;
   logic perm_start,perm_busy, perm_done;
   logic [319:0] perm_state_in, perm_state_out;
+
 
   ascon_perm ascon_perm_inst (
     .clk(clk),
@@ -57,14 +61,18 @@ module ascon_aead(
             ct_block <= 128'h0;
             tag <= 128'h0;  
             ad_idx <= 8'd0;
+            pt_idx <= 8'd0;
         end else begin
+            ct_valid <= 1'b0;
             case (fsm)
                 IDLE: begin
                     if(start) begin
                         perm_rounds <= 4'b1100;
                         perm_state_in <= state_i;
                         ad_idx <= 8'd0; 
+                        pt_idx <= 8'd0;
                         fsm <= INIT_START;
+                        ct_valid <= 1'b0;
                     end
                 end
                 INIT_START: begin
@@ -79,8 +87,8 @@ module ascon_aead(
                     end
                 end
                 PROCESS_AD_INIT: begin
-                    perm_rounds <= 4'b1000;
-                    perm_state_in <= {state_reg_up,state_reg_down ^ ad_block};
+                    perm_rounds <= 4'b1000;                   
+                    perm_state_in <= {state_reg_up, state_reg_down ^ ad_block};
                     perm_start <= 1'b1;
                     fsm <= PROCESS_AD_WAIT;
                 end
@@ -97,9 +105,27 @@ module ascon_aead(
                     fsm <= PROCESS_PT_INIT;
                 end
                 PROCESS_PT_INIT: begin
-                    state_reg_down <= state_reg_down ^ pt_padded;
-                    ct_block       <= state_reg_down ^ pt_padded;
-                    fsm <= FINALIZE;
+                    if(pt_idx == pt_blocks - 1) begin
+                        state_reg_down <= state_reg_down ^ pt_padded;
+                        ct_block       <= state_reg_down ^ pt_padded;
+                        ct_valid   <= 1'b1;   
+                        fsm <= FINALIZE;
+                    end else begin
+                        perm_rounds <= 4'b1000;
+                        perm_state_in <= {state_reg_up, state_reg_down ^ pt_block};
+                        ct_valid <= 1'b1;
+                        ct_block <= state_reg_down ^ pt_block;
+                        perm_start <= 1'b1;
+                        fsm <= PROCESS_PT_WAIT;
+                    end    
+                end
+                PROCESS_PT_WAIT: begin
+                    perm_start <= 1'b0;
+                    if(perm_done) begin
+                        {state_reg_up, state_reg_down} <= perm_state_out;
+                        pt_idx <= pt_idx + 8'd1;
+                        fsm <= PROCESS_PT_INIT;
+                    end
                 end
                 FINALIZE: begin
                     perm_rounds   <= 4'b1100;
@@ -120,6 +146,7 @@ module ascon_aead(
                 DONE: begin
                     fsm <= IDLE;
                 end
+                default: fsm <= IDLE;
             endcase     
         end
     end
