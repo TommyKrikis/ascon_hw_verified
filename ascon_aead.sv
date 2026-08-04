@@ -11,23 +11,27 @@ module ascon_aead(
     input  logic [127:0] nonce,          
     output logic [127:0] ct_block,
     output logic ct_valid,       
-    input  logic [127:0] pt_block,
-    input logic [7:0] pt_blocks,
-    output logic [7:0] pt_idx,          // "I want block number pt_idx"
+    input  logic [127:0] data_in,
+    input logic [7:0] data_blocks,
+    output logic [7:0] data_idx,          // "I want block number data_idx"
+    input logic [3:0] data_len,       
+
     input logic [127:0] ad_block,
     input  logic [7:0]   ad_blocks,   // how many AD blocks total (0 = empty)
     output logic [7:0]   ad_idx,      // "I want block number ad_idx"
-    input logic [3:0] pt_len,       
-    output logic [127:0] tag           
+    output logic [127:0] tag,
+    input logic decr_en,
+    input  logic [127:0] tag_in,       // the tag received with the ciphertext (decrypt only)
+    output logic tag_ok,           
 );
 
   localparam [63:0] iv = 64'h00001000808c0001;
   logic [319:0] state_i;
   assign state_i = {nonce, key, iv};
-  logic [127:0] pad, pad_keep, pt_padded;
-  assign pad       = 128'h1 << (pt_len*8);
+  logic [127:0] pad, pad_keep, data_padded;
+  assign pad       = 128'h1 << (data_len*8);
   assign pad_keep  = pad - 128'h1;
-  assign pt_padded = (pt_block & pad_keep) | pad;
+  assign pt_padded = (data_in & pad_keep) | pad;
 
   logic [3:0] perm_rounds = 4'b0000;
 
@@ -61,7 +65,7 @@ module ascon_aead(
             ct_block <= 128'h0;
             tag <= 128'h0;  
             ad_idx <= 8'd0;
-            pt_idx <= 8'd0;
+            data_idx <= 8'd0;
         end else begin
             ct_valid <= 1'b0;
             case (fsm)
@@ -70,7 +74,7 @@ module ascon_aead(
                         perm_rounds <= 4'b1100;
                         perm_state_in <= state_i;
                         ad_idx <= 8'd0; 
-                        pt_idx <= 8'd0;
+                        data_idx <= 8'd0;
                         fsm <= INIT_START;
                         ct_valid <= 1'b0;
                     end
@@ -105,16 +109,16 @@ module ascon_aead(
                     fsm <= PROCESS_PT_INIT;
                 end
                 PROCESS_PT_INIT: begin
-                    if(pt_idx == pt_blocks - 1) begin
+                    if(data_idx == data_blocks - 1) begin
                         state_reg_down <= state_reg_down ^ pt_padded;
                         ct_block       <= state_reg_down ^ pt_padded;
                         ct_valid   <= 1'b1;   
                         fsm <= FINALIZE;
                     end else begin
                         perm_rounds <= 4'b1000;
-                        perm_state_in <= {state_reg_up, state_reg_down ^ pt_block};
+                        perm_state_in <= {state_reg_up, state_reg_down ^ data_in};
                         ct_valid <= 1'b1;
-                        ct_block <= state_reg_down ^ pt_block;
+                        ct_block <= state_reg_down ^ data_in;
                         perm_start <= 1'b1;
                         fsm <= PROCESS_PT_WAIT;
                     end    
@@ -123,7 +127,7 @@ module ascon_aead(
                     perm_start <= 1'b0;
                     if(perm_done) begin
                         {state_reg_up, state_reg_down} <= perm_state_out;
-                        pt_idx <= pt_idx + 8'd1;
+                        data_idx <= data_idx + 8'd1;
                         fsm <= PROCESS_PT_INIT;
                     end
                 end
