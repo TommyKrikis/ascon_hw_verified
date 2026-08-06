@@ -8,9 +8,11 @@ module ascon_aead(
     output logic        done,           
 
     input  logic [127:0] key,            
-    input  logic [127:0] nonce,          
-    output logic [127:0] ct_block,
-    output logic ct_valid,       
+    input  logic [127:0] nonce,
+
+    output logic [127:0] data_out_block,
+    output logic data_out_valid,       
+    
     input  logic [127:0] data_in,
     input logic [7:0] data_blocks,
     output logic [7:0] data_idx,          // "I want block number data_idx"
@@ -22,7 +24,7 @@ module ascon_aead(
     output logic [127:0] tag,
     input logic decr_en,
     input  logic [127:0] tag_in,       // the tag received with the ciphertext (decrypt only)
-    output logic tag_ok,           
+    output logic tag_ok           
 );
 
   localparam [63:0] iv = 64'h00001000808c0001;
@@ -31,7 +33,7 @@ module ascon_aead(
   logic [127:0] pad, pad_keep, data_padded;
   assign pad       = 128'h1 << (data_len*8);
   assign pad_keep  = pad - 128'h1;
-  assign pt_padded = (data_in & pad_keep) | pad;
+  assign data_padded = (data_in & pad_keep) | pad;
 
   logic [3:0] perm_rounds = 4'b0000;
 
@@ -62,12 +64,12 @@ module ascon_aead(
         if (!rst_n) begin
             fsm <= IDLE;
             perm_start <= 1'b0;
-            ct_block <= 128'h0;
+            data_out_block <= 128'h0;
             tag <= 128'h0;  
             ad_idx <= 8'd0;
             data_idx <= 8'd0;
         end else begin
-            ct_valid <= 1'b0;
+            data_out_valid <= 1'b0;
             case (fsm)
                 IDLE: begin
                     if(start) begin
@@ -76,7 +78,8 @@ module ascon_aead(
                         ad_idx <= 8'd0; 
                         data_idx <= 8'd0;
                         fsm <= INIT_START;
-                        ct_valid <= 1'b0;
+                        data_out_valid <= 1'b0;
+                        tag_ok <= 1'b0;
                     end
                 end
                 INIT_START: begin
@@ -110,15 +113,27 @@ module ascon_aead(
                 end
                 PROCESS_PT_INIT: begin
                     if(data_idx == data_blocks - 1) begin
-                        state_reg_down <= state_reg_down ^ pt_padded;
-                        ct_block       <= state_reg_down ^ pt_padded;
-                        ct_valid   <= 1'b1;   
+                        if(decr_en) begin
+                            state_reg_down <= (state_reg_down & ~pad_keep)     // untouched part of the rate
+                                ^ (data_in & pad_keep)             // the received ciphertext bytes
+                                ^ pad;                             // the 0x01 marker
+                            data_out_block <= state_reg_down ^ (data_in & pad_keep);
+                        end else begin
+                            state_reg_down <= state_reg_down ^ data_padded;
+                            data_out_block       <= state_reg_down ^ data_padded;
+                        end
+                        data_out_valid   <= 1'b1;   
                         fsm <= FINALIZE;
                     end else begin
                         perm_rounds <= 4'b1000;
-                        perm_state_in <= {state_reg_up, state_reg_down ^ data_in};
-                        ct_valid <= 1'b1;
-                        ct_block <= state_reg_down ^ data_in;
+                        if(decr_en) begin
+                            perm_state_in <= {state_reg_up, data_in};
+                            data_out_block <= state_reg_down ^ data_in;
+                        end else begin
+                            perm_state_in <= {state_reg_up, state_reg_down ^ data_in};
+                            data_out_block <= state_reg_down ^ data_in;
+                        end
+                        data_out_valid <= 1'b1;
                         perm_start <= 1'b1;
                         fsm <= PROCESS_PT_WAIT;
                     end    
@@ -143,6 +158,9 @@ module ascon_aead(
                 FIN_WAIT: begin
                     perm_start <= 1'b0;
                     if(perm_done) begin
+                        if(decr_en) begin
+                            tag_ok <= (tag_in == (perm_state_out[319:192] ^ key));
+                        end
                         tag <= perm_state_out[319:192] ^ key;
                         fsm <= DONE;
                     end
