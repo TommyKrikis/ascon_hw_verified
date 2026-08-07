@@ -68,6 +68,7 @@ module ascon_aead(
             tag <= 128'h0;  
             ad_idx <= 8'd0;
             data_idx <= 8'd0;
+            tag_ok <= 1'b0;
         end else begin
             data_out_valid <= 1'b0;
             case (fsm)

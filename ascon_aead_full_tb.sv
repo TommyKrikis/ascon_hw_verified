@@ -9,7 +9,7 @@
 //
 // To add a case: fill the vector arrays, then call run_case("name").
 // ---------------------------------------------------------------------------
-module ascon_aead_regress_tb;
+module ascon_aead_full_tb;
 
     logic         clk, rst_n, start;
     logic [127:0] key, nonce;
@@ -61,6 +61,7 @@ module ascon_aead_regress_tb;
     always @(posedge clk) begin
         if (rst_n && data_out_valid) begin
             data_out_cap[data_out_n] = data_out_block;
+            if (!decr_en) ct_mem[data_out_n] = data_out_block;
             data_out_n = data_out_n + 1;
         end
     end
@@ -79,7 +80,7 @@ module ascon_aead_regress_tb;
             exp_tag   = '0;
             data_in_blocks = 8'd0;
             ad_blocks = 8'd0;
-            data_in_len    = 4'd0;
+            data_len    = 4'd0;
         end
     endtask
 
@@ -92,7 +93,7 @@ module ascon_aead_regress_tb;
         begin
             cases++;
             data_out_n = 0;                       // reset the monitor for this case
-
+            decr_en = 1'b0;                         // encryption
             @(negedge clk); start = 1'b1;
             @(negedge clk); start = 1'b0;
 
@@ -100,9 +101,9 @@ module ascon_aead_regress_tb;
             @(negedge clk);                 // let the monitor see the last pulse
 
             // --- how many blocks came out? ---
-            if (data_out_n !== pt_blocks) begin
+            if (data_out_n !== data_in_blocks) begin
                 errors++;
-                $display("FAIL [%s] block count: got %0d exp %0d", name, data_out_n, pt_blocks);
+                $display("FAIL [%s] block count: got %0d exp %0d", name, data_out_n, data_in_blocks);
             end
 
             // --- full blocks: compare all 128 bits ---
@@ -114,15 +115,15 @@ module ascon_aead_regress_tb;
                 end
             end
 
-            // --- last block is partial: only the low data_in_len bytes count.
-            //     data_in_len == 0 -> mask is 0 -> nothing to compare (correct:
+            // --- last block is partial: only the low data_len bytes count.
+            //     data_len == 0 -> mask is 0 -> nothing to compare (correct:
             //     a pure-padding block contributes no ciphertext).
-            mask = (data_in_len == 0) ? 128'h0 : ({128{1'b1}} >> (128 - data_in_len*8));
-            if ((data_out_cap[pt_blocks-1] & mask) !== (exp_ct[pt_blocks-1] & mask)) begin
+            mask = (data_len == 0) ? 128'h0 : ({128{1'b1}} >> (128 - data_len*8));
+            if ((data_out_cap[data_in_blocks-1] & mask) !== (exp_ct[data_in_blocks-1] & mask)) begin
                 errors++;
                 $display("FAIL [%s] ct[%0d] (last, masked): got %032h exp %032h",
-                         name, pt_blocks-1,
-                         data_out_cap[pt_blocks-1] & mask, exp_ct[pt_blocks-1] & mask);
+                         name, data_in_blocks-1,
+                         data_out_cap[data_in_blocks-1] & mask, exp_ct[data_in_blocks-1] & mask);
             end
 
             // --- tag ---
@@ -130,10 +131,71 @@ module ascon_aead_regress_tb;
                 errors++;
                 $display("FAIL [%s] tag: got %032h exp %032h", name, tag, exp_tag);
             end else begin
-                $display("PASS [%s]  (AD blk=%0d, PT blk=%0d, data_in_len=%0d)",
-                         name, ad_blocks, pt_blocks, data_in_len);
+                $display("PASS [%s]  (AD blk=%0d, PT blk=%0d, data_len=%0d)",
+                         name, ad_blocks, data_in_blocks, data_len);
             end
 
+            @(negedge clk);
+            
+            tag_in = tag;          // the tag encryption just produced
+            data_out_n = 0;        // reset the monitor for the decrypt run
+            decr_en = 1'b1;
+            @(negedge clk); start = 1'b1;
+            @(negedge clk); start = 1'b0;
+
+            wait (done == 1'b1);
+            @(negedge clk);    
+
+            for (int i = 0; i < data_in_blocks- 1; i++) begin
+                if (data_out_cap[i] !== pt_mem[i]) begin
+                    errors++;
+                    $display("FAIL in Plaintext [%s] ct[%0d]: got %032h exp %032h",
+                             name, i, data_out_cap[i], pt_mem[i]);
+                end
+            end
+
+            mask = (data_len == 0) ? 128'h0 : ({128{1'b1}} >> (128 - data_len*8));
+            if ((data_out_cap[data_in_blocks-1] & mask) !== (pt_mem[data_in_blocks-1] & mask)) begin
+                errors++;
+                $display("FAIL [%s] ct[%0d] (last, masked): got %032h exp %032h",
+                         name, data_in_blocks-1,
+                         data_out_cap[data_in_blocks-1] & mask, pt_mem[data_in_blocks-1] & mask);
+            end
+
+            // --- tag ---
+            if (tag_ok !== 1'b1) begin
+                errors++;
+                $display("FAIL [%s] tag: got %032h exp %032h", name, tag, exp_tag);
+            end else begin
+                $display("DECRYPT PASS [%s]  (AD blk=%0d, PT blk=%0d, data_len=%0d)",
+                         name, ad_blocks, data_in_blocks, data_len);
+            end
+
+            // -------------------------------------------------------------
+            // NEGATIVE TEST: corrupt the tag and decrypt the SAME ciphertext
+            // again. The core must reject it (tag_ok == 0). Without this, a
+            // DUT that hardwired tag_ok = 1 would pass every check above.
+            // -------------------------------------------------------------
+            @(negedge clk);
+            tag_in     = tag_in ^ 128'h1;   // flip a single bit of the tag
+            data_out_n = 0;
+            decr_en    = 1'b1;
+
+            @(negedge clk); start = 1'b1;
+            @(negedge clk); start = 1'b0;
+
+            wait (done == 1'b1);
+            @(negedge clk);
+
+            if (tag_ok !== 1'b0) begin
+                errors++;
+                $display("FAIL [%s] BAD TAG ACCEPTED (tag_ok=%b) -- authentication is broken!",
+                         name, tag_ok);
+            end else begin
+                $display("REJECT PASS [%s]  (corrupted tag correctly rejected)", name);
+            end
+
+            tag_in = tag_in ^ 128'h1;       // restore, so nothing leaks to the next case
             @(negedge clk);
         end
     endtask
@@ -157,7 +219,7 @@ module ascon_aead_regress_tb;
         pt_mem[0] = 128'h00000000000000000000000000000000;
         exp_ct[0] = 128'h00000000000000000000000000000000;
         exp_tag   = 128'hb09b83f0605944fc51141e8e4bd62744;
-        ad_blocks = 8'd0; data_in_blocks= 8'd1; data_in_len = 4'd0;
+        ad_blocks = 8'd0; data_in_blocks= 8'd1; data_len = 4'd0;
         run_case("E1 emptyAD emptyPT");
 
         // ---- E2: empty AD, 4-byte PT ----
@@ -165,7 +227,7 @@ module ascon_aead_regress_tb;
         pt_mem[0] = 128'h00000000000000000000000003020100;
         exp_ct[0] = 128'h00000000000000000000000089d270e7;
         exp_tag   = 128'h0f5d3020158d48eb368ce50174bd3d72;
-        ad_blocks = 8'd0; data_in_blocks= 8'd1; data_in_len = 4'd4;
+        ad_blocks = 8'd0; data_in_blocks= 8'd1; data_len = 4'd4;
         run_case("E2 emptyAD 4B-PT");
 
         // ---- E3: empty AD, EXACTLY 16-byte PT -> 2nd block is all padding ----
@@ -175,7 +237,7 @@ module ascon_aead_regress_tb;
         exp_ct[0] = 128'he37452ce8ea4d07cee4aa4d289d270e7;
         exp_ct[1] = 128'h00000000000000000000000000000000;
         exp_tag   = 128'h1184a7f5725974f256e5c48f9a1f72ea;
-        ad_blocks = 8'd0; data_in_blocks= 8'd2; data_in_len = 4'd0;
+        ad_blocks = 8'd0; data_in_blocks= 8'd2; data_len = 4'd0;
         run_case("E3 emptyAD 16B-PT exact");
 
         // ---- E4: empty AD, 20-byte PT (2 blocks) ----
@@ -185,7 +247,7 @@ module ascon_aead_regress_tb;
         exp_ct[0] = 128'he37452ce8ea4d07cee4aa4d289d270e7;
         exp_ct[1] = 128'h000000000000000000000000e1d7ba81;
         exp_tag   = 128'ha688fdb6d0646a3987938a60b60d41eb;
-        ad_blocks = 8'd0; data_in_blocks= 8'd2; data_in_len = 4'd4;
+        ad_blocks = 8'd0; data_in_blocks= 8'd2; data_len = 4'd4;
         run_case("E4 emptyAD 20B-PT");
 
         // ---- E5: empty AD, 40-byte PT (3 blocks) ----
@@ -197,7 +259,7 @@ module ascon_aead_regress_tb;
         exp_ct[1] = 128'hb1beeb0d6173780f97c4dc63e1d7ba81;
         exp_ct[2] = 128'h000000000000000067636ad1898197c7;
         exp_tag   = 128'hdb7a1b59144db8b61000518a68ca33d8;
-        ad_blocks = 8'd0; data_in_blocks= 8'd3; data_in_len = 4'd8;
+        ad_blocks = 8'd0; data_in_blocks= 8'd3; data_len = 4'd8;
         run_case("E5 emptyAD 40B-PT 3blk");
 
         // ---- E6: 1 AD block, 20-byte PT ----
@@ -208,7 +270,7 @@ module ascon_aead_regress_tb;
         exp_ct[0] = 128'hb06519b744f7308bb051a21773603eb0;
         exp_ct[1] = 128'h000000000000000000000000357abef1;
         exp_tag   = 128'h01a0edbc17fe50b2ebdad779e67d51e0;
-        ad_blocks = 8'd1; data_in_blocks= 8'd2; data_in_len = 4'd4;
+        ad_blocks = 8'd1; data_in_blocks= 8'd2; data_len = 4'd4;
         run_case("E6 1AD-blk 20B-PT");
 
         // ---- E7: 2 AD blocks (16B AD -> extra padding block), 20-byte PT ----
@@ -220,7 +282,7 @@ module ascon_aead_regress_tb;
         exp_ct[0] = 128'h997f188b319520e4fa23604a5e21286a;
         exp_ct[1] = 128'h00000000000000000000000006236dc5;
         exp_tag   = 128'he587c69503d4e53d930ae41b74af2896;
-        ad_blocks = 8'd2; data_in_blocks= 8'd2; data_in_len = 4'd4;
+        ad_blocks = 8'd2; data_in_blocks= 8'd2; data_len = 4'd4;
         run_case("E7 2AD-blk 20B-PT");
 
         // ---- E8: 3 AD blocks, 33-byte PT (3 blocks, 1-byte last) ----
@@ -235,7 +297,7 @@ module ascon_aead_regress_tb;
         exp_ct[1] = 128'h8ec2db1b2bcf60fd29b33b0d15bf9a47;
         exp_ct[2] = 128'h00000000000000000000000000000004;
         exp_tag   = 128'h71de5bb91a79b2ca4ef898437722d61a;
-        ad_blocks = 8'd3; data_in_blocks= 8'd3; data_in_len = 4'd1;
+        ad_blocks = 8'd3; data_in_blocks= 8'd3; data_len = 4'd1;
         run_case("E8 3AD-blk 33B-PT 3blk");
 
         // ---- summary ----
