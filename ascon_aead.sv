@@ -21,6 +21,7 @@ module ascon_aead(
     input logic [127:0] ad_block,
     input  logic [7:0]   ad_blocks,   // how many AD blocks total (0 = empty)
     output logic [7:0]   ad_idx,      // "I want block number ad_idx"
+    input logic [3:0] ad_len,        // how many bytes of the last AD block are valid (0 = full block)
     output logic [127:0] tag,
     input logic decr_en,
     input  logic [127:0] tag_in,       // the tag received with the ciphertext (decrypt only)
@@ -30,10 +31,16 @@ module ascon_aead(
   localparam [63:0] iv = 64'h00001000808c0001;
   logic [319:0] state_i;
   assign state_i = {nonce, key, iv};
+
   logic [127:0] pad, pad_keep, data_padded;
   assign pad       = 128'h1 << (data_len*8);
   assign pad_keep  = pad - 128'h1;
   assign data_padded = (data_in & pad_keep) | pad;
+
+  logic [127:0] ad_pad, ad_pad_keep, ad_padded;
+    assign ad_pad      = 128'h1 << (ad_len*8);
+    assign ad_pad_keep = ad_pad - 128'h1;
+    assign ad_padded   = (ad_block & ad_pad_keep) | ad_pad;
 
   logic [3:0] perm_rounds = 4'b0000;
 
@@ -96,7 +103,7 @@ module ascon_aead(
                 end
                 PROCESS_AD_INIT: begin
                     perm_rounds <= 4'b1000;                   
-                    perm_state_in <= {state_reg_up, state_reg_down ^ ad_block};
+                    perm_state_in <= {state_reg_up, state_reg_down ^ ((ad_idx == ad_blocks-1) ? ad_padded : ad_block)};
                     perm_start <= 1'b1;
                     fsm <= PROCESS_AD_WAIT;
                 end

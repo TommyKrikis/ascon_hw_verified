@@ -16,7 +16,7 @@ module ascon_aead_full_tb;
     logic [127:0] data_in_block, data_out_block, ad_block;
     logic [7:0]   data_in_blocks, data_in_idx;
     logic [7:0]   ad_blocks, ad_idx;
-    logic [3:0]   data_len;
+    logic [3:0]   data_len, ad_len;
     logic         busy, done , tag_ok,decr_en;
     logic [127:0] tag, tag_in;
     logic data_out_valid;
@@ -29,7 +29,7 @@ module ascon_aead_full_tb;
         .clk(clk), .rst_n(rst_n), .start(start),
         .key(key), .nonce(nonce),
         .data_in(data_in_block), .data_blocks(data_in_blocks), .data_idx(data_in_idx), .data_len(data_len),
-        .ad_block(ad_block), .ad_blocks(ad_blocks), .ad_idx(ad_idx),
+        .ad_block(ad_block), .ad_blocks(ad_blocks), .ad_idx(ad_idx), .ad_len(ad_len),
         .busy(busy), .done(done), .tag_ok(tag_ok), .decr_en(decr_en),
         .data_out_block(data_out_block), .data_out_valid(data_out_valid), .tag(tag) , .tag_in(tag_in)
     );
@@ -81,6 +81,7 @@ module ascon_aead_full_tb;
             data_in_blocks = 8'd0;
             ad_blocks = 8'd0;
             data_len    = 4'd0;
+            ad_len      = 4'd0;
         end
     endtask
 
@@ -204,6 +205,13 @@ module ascon_aead_full_tb;
     // Test sequence
     // -----------------------------------------------------------------
     initial begin
+        $readmemh("kat_meta.hex", kat_meta);
+        $readmemh("kat_ad.hex",   kat_ad);
+        $readmemh("kat_pt.hex",   kat_pt);
+        $readmemh("kat_ct.hex",   kat_ct);
+        $readmemh("kat_tag.hex",  kat_tag);
+
+        
         start = 1'b0; key = '0; nonce = '0;
         clear_vectors();
         rst_n = 1'b0;
@@ -262,34 +270,38 @@ module ascon_aead_full_tb;
         ad_blocks = 8'd0; data_in_blocks= 8'd3; data_len = 4'd8;
         run_case("E5 emptyAD 40B-PT 3blk");
 
-        // ---- E6: 1 AD block, 20-byte PT ----
+        // ---- E6: 15-byte AD (1 block, HW pads), 20-byte PT ----
         clear_vectors();
-        ad_mem[0] = 128'h010e0d0c0b0a09080706050403020100;
+        ad_mem[0] = 128'h000e0d0c0b0a09080706050403020100;   // 15 raw bytes
         pt_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;
         pt_mem[1] = 128'h00000000000000000000000013121110;
         exp_ct[0] = 128'hb06519b744f7308bb051a21773603eb0;
         exp_ct[1] = 128'h000000000000000000000000357abef1;
         exp_tag   = 128'h01a0edbc17fe50b2ebdad779e67d51e0;
-        ad_blocks = 8'd1; data_in_blocks= 8'd2; data_len = 4'd4;
-        run_case("E6 1AD-blk 20B-PT");
+        ad_blocks = 8'd1; ad_len = 4'd15;
+        data_in_blocks= 8'd2; data_len = 4'd4;
+        run_case("E6 15B-AD 20B-PT");
 
-        // ---- E7: 2 AD blocks (16B AD -> extra padding block), 20-byte PT ----
+        // ---- E7: 16-byte AD -> exact multiple, so HW must add a whole
+        //          all-padding block (ad_len = 0 on that last block) ----
         clear_vectors();
-        ad_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;
-        ad_mem[1] = 128'h00000000000000000000000000000001;
+        ad_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;   // 16 raw bytes
+        ad_mem[1] = 128'h00000000000000000000000000000000;   // HW generates the pad
         pt_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;
         pt_mem[1] = 128'h00000000000000000000000013121110;
         exp_ct[0] = 128'h997f188b319520e4fa23604a5e21286a;
         exp_ct[1] = 128'h00000000000000000000000006236dc5;
         exp_tag   = 128'he587c69503d4e53d930ae41b74af2896;
-        ad_blocks = 8'd2; data_in_blocks= 8'd2; data_len = 4'd4;
-        run_case("E7 2AD-blk 20B-PT");
+        ad_blocks = 8'd2; ad_len = 4'd0;
+        data_in_blocks= 8'd2; data_len = 4'd4;
+        run_case("E7 16B-AD exact 20B-PT");
 
-        // ---- E8: 3 AD blocks, 33-byte PT (3 blocks, 1-byte last) ----
+        // ---- E8: 35-byte AD (3 blocks, 3-byte tail), 33-byte PT (3 blocks) ----
         clear_vectors();
         ad_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;
         ad_mem[1] = 128'h1f1e1d1c1b1a19181716151413121110;
-        ad_mem[2] = 128'h00000000000000000000000001222120;
+        ad_mem[2] = 128'h00000000000000000000000000222120;   // 3 raw bytes
+        ad_len    = 4'd3;
         pt_mem[0] = 128'h0f0e0d0c0b0a09080706050403020100;
         pt_mem[1] = 128'h1f1e1d1c1b1a19181716151413121110;
         pt_mem[2] = 128'h00000000000000000000000000000020;

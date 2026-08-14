@@ -18,3 +18,11 @@ work/_vmake
 *.mti
 *.mpf
 ascon_rtl.cr.mti
+*.qdb
+*.qpg
+*.qtl
+kat_ad.hex
+kat_ct.hex
+kat_meta.hex
+kat_pt.hex
+kat_tag.hex
