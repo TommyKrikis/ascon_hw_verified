@@ -21,7 +21,7 @@ virtual task run_phase(uvm_phase phase);
   forever begin
 
     seq_item_port.get_next_item(req); 
-    `uvm_info(get_type_name(), $sformatf("driving:\n%s", req.sprint()), UVM_LOW)
+    `uvm_info(get_type_name(), $sformatf("driving:\n%s", req.sprint()), UVM_HIGH)
     foreach (vif.pt_blk[i]) vif.pt_blk[i] = '0;
     foreach (vif.ad_blk[i]) vif.ad_blk[i] = '0;
 

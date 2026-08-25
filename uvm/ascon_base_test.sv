@@ -15,6 +15,7 @@ class ascon_base_test extends uvm_test;
    endfunction
 
   task run_phase(uvm_phase phase);
+    phase.phase_done.set_drain_time(this, 100ns);
     phase.raise_objection(this);
     `uvm_info("BASE_TEST", "UVM flow is alive", UVM_LOW)
     my_seq.start(my_env.agt.seqr);
