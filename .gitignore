@@ -26,3 +26,12 @@ kat_ct.hex
 kat_meta.hex
 kat_pt.hex
 kat_tag.hex
+
+# XSim / Vivado simulator artifacts
+xsim.dir/
+*.wdb
+*.jou
+*.log
+*.pb
+dump.vcd
+tr_db.log
