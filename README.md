@@ -104,9 +104,9 @@ ModelSim / Questa:
 python gen_kat_hex.py          # generate KAT vectors (once)
 
 vlib work
-vlog -work work -sv s_box.sv p_add_const.sv p_sub.sv p_diff.sv p_round.sv \
-                    ascon_perm.sv ascon_aead.sv
-vlog -work work -sv ascon_aead_nist_tb.sv
+vlog -work work -sv rtl/s_box.sv rtl/p_add_const.sv rtl/p_sub.sv rtl/p_diff.sv \
+                    rtl/p_round.sv rtl/ascon_perm.sv rtl/ascon_aead.sv
+vlog -work work -sv tb/ascon_aead_nist_tb.sv
 vsim -c work.ascon_aead_nist_tb -do "run -all; quit"
 ```
 

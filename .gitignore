@@ -29,9 +29,12 @@ kat_tag.hex
 
 # XSim / Vivado simulator artifacts
 xsim.dir/
+xsim.covdb/
 *.wdb
 *.jou
 *.log
 *.pb
+*.backup.jou
+*.backup.log
 dump.vcd
 tr_db.log
