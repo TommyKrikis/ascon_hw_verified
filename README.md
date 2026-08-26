@@ -6,6 +6,7 @@ round-based iterative, verified against all 1089 reference test vectors.
 
 ```
 1089 / 1089 KAT vectors passing  ·  encrypt + decrypt + tag rejection
+2178 / 2178 UVM transactions passing  ·  100% functional coverage
 ```
 
 ## Design
@@ -69,6 +70,32 @@ Pass 3 is what proves authentication: every other check would still succeed if
 0–32 bytes, including empty inputs and exact block multiples (which require an
 extra all-padding block).
 
+### UVM environment
+
+A second, independent verification environment under `uvm/`, built as a standard
+UVM testbench and run under Vivado XSim.
+
+| component | role |
+|---|---|
+| `ascon_if.sv` | interface with `drv_cb` / `mon_cb` clocking blocks |
+| `ascon_sequence_item.sv` | key, nonce, AD, message, mode, and observed results |
+| `ascon_driver.sv` | packs bytes into blocks, drives the `start` handshake |
+| `ascon_monitor.sv` | pin-only observation — never sees the stimulus object |
+| `ascon_scoreboard.sv` | holds the expected half of the KAT database |
+| `ascon_subscriber.sv` | functional coverage on message/AD length and mode |
+| `ascon_kat_sequence.sv`, `ascon_dec_sequence.sv` | directed KAT stimulus |
+
+The monitor reconstructs each transaction from pins alone and the scoreboard
+never sees the stimulus files, so neither side can bias the check.
+
+```sh
+cd uvm && ascon_run_uvm.bat
+```
+
+Result: **2178 transactions checked, 2178 passed, 0 failed**, functional
+coverage **100%** — length bins from empty through 32 bytes, crossed with
+associated-data length, in both encrypt and decrypt modes.
+
 ## Build
 
 ModelSim / Questa:
@@ -85,6 +112,30 @@ vsim -c work.ascon_aead_nist_tb -do "run -all; quit"
 
 `gen_kat_hex.py` converts `LWC_AEAD_KAT_128_128.txt` into `$readmemh` files; run
 `vsim` from this directory so those paths resolve.
+
+## Synthesis
+
+Vivado 2023.1, target `xc7a35tcpg236-1` (Artix-7), default strategy,
+post-synthesis:
+
+| metric | value |
+|---|---|
+| Slice LUTs | 1686 (8.1%) |
+| Slice registers | 1573 (3.8%) |
+| Block RAM | 0 |
+| DSP | 0 |
+| WNS | +4.493 ns |
+| Fmax | ≈ 182 MHz |
+| Throughput | ≈ 2.1 Gbit/s |
+
+`ascon_perm` dominates at 937 LUTs / 648 FFs, of which `p_sub` is 112 LUTs —
+the S-box network is cheap; the round-state registers and the permutation
+control account for most of the area. No inferred memories, so the design is
+portable to an ASIC flow without technology-specific primitives.
+
+Figures are post-synthesis. The core exposes 944 parallel I/O bits, more than
+the package provides, so full implementation requires a bus wrapper — the
+next planned step.
 
 ## Notes
 
