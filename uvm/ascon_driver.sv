@@ -25,9 +25,9 @@ virtual task run_phase(uvm_phase phase);
     foreach (vif.pt_blk[i]) vif.pt_blk[i] = '0;
     foreach (vif.ad_blk[i]) vif.ad_blk[i] = '0;
 
-    vif.drv_cb.tag_in <= '0;
 
     // drive the interface signals based on the request item
+    vif.drv_cb.tag_in <= req.tag_in;
     vif.drv_cb.key <= req.key;
     vif.drv_cb.nonce <= req.nonce;
     vif.drv_cb.data_blocks <= req.pt.size()/16+1;

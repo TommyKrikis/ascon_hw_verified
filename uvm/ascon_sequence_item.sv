@@ -4,7 +4,8 @@ class ascon_sequence_item extends uvm_sequence_item;
   rand bit [127:0] key;
   rand byte pt[]; 
   rand bit [127:0] nonce;
-  rand byte ad[];         
+  rand byte ad[];   
+  bit [127:0] tag_in;      
   rand bit decr_en;
 
 
