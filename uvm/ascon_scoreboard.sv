@@ -108,15 +108,12 @@ class ascon_scoreboard extends uvm_scoreboard;
           $sformatf("checked %0d vectors, %0d failed", vec_idx, n_failed), UVM_LOW)
   endfunction
 
-  // -------------------------------------------------------------------------
-  // report_phase runs after the run phase -- the place for a final verdict.
-  // -------------------------------------------------------------------------
   virtual function void report_phase(uvm_phase phase);
     super.report_phase(phase);
     `uvm_info(get_type_name(),
       $sformatf("SCOREBOARD: %0d checked, %0d passed, %0d failed",
-                vec_idx, n_passed, n_failed), UVM_LOW)
-    if (vec_idx == 0)
+                n_passed + n_failed, n_passed, n_failed), UVM_LOW)
+    if (n_passed + n_failed == 0)
       `uvm_error(get_type_name(), "scoreboard saw no transactions")
   endfunction
 
